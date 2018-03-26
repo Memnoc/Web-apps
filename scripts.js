@@ -1,10 +1,16 @@
-function init() {
-  // reset page
-  document.getElementById('error-msg').style.display = "none";
-  document.getElementById('details').style.display = "none";
+(function() {
+  // 'use strict';
+
+  var SUBDOMAIN = '';
+  var REDIRECT_URL = '';
+  var CLIENT_ID = '';
+
+  var ticket_result = null;
+
+  $('#get-btn').click(getTicket);
 
   var url = window.location.href;
-  if (url.indexOf('your_redirect_url') !== -1) {
+  if (url.indexOf(REDIRECT_URL) !== -1) {
     if (url.indexOf('access_token=') !== -1) {
       var access_token = readUrlParam(url, 'access_token');
       localStorage.setItem('zauth', access_token);
@@ -20,87 +26,75 @@ function init() {
       showError(msg);
     }
   }
-}
 
-function getTicket(event) {
-  event.preventDefault();
-  document.getElementById('error-msg').style.display = "none";  // clear error messages
-  var ticket_id = document.getElementById('ticket-id').value;
-  if ((!ticket_id) || isNaN(ticket_id)) {
-    showError('Oops, the field value should be a ticket id.');
-    return;
+  function getTicket() {
+    var ticket_id = $('#ticket-id').val();
+    if ((!ticket_id) || isNaN(ticket_id)) {
+      showError('Oops, the field value should be a ticket id.');
+      return;
+    }
+    if (localStorage.getItem('zauth')) {
+      var access_token = localStorage.getItem('zauth');
+      makeRequest(access_token, ticket_id);
+    } else {
+      localStorage.setItem('ticket_id', ticket_id);
+      startAuthFlow();
+    }
   }
-  if (localStorage.getItem('zauth')) {
-    var access_token = localStorage.getItem('zauth');
-    makeRequest(access_token, ticket_id);
-  } else {
-    localStorage.setItem('ticket_id', ticket_id);
-    startAuthFlow();
+
+  function startAuthFlow() {
+    var endpoint = 'https://'+ SUBDOMAIN +'.zendesk.com/oauth/authorizations/new';
+    var url_params = '?response_type=token' +
+    '&redirect_uri='+ REDIRECT_URL +
+    '&client_id='+ CLIENT_ID +
+    '&scope=' + encodeURIComponent('read write');
+    window.location = endpoint + url_params;
   }
-}
 
-function startAuthFlow() {
-  var endpoint = 'https://your_subdomain.zendesk.com/oauth/authorizations/new';
-  var url_params = '?' +
-  'response_type=token' + '&' +
-  'redirect_uri=your_redirect_url' + '&' +
-  'client_id=your_unique_identifier' + '&' +
-  'scope=' + encodeURIComponent('read write');
-  window.location = endpoint + url_params;
-}
-
-function makeRequest(token, ticket_id) {
-  var request = new XMLHttpRequest();
-
-  request.onreadystatechange = function() {
-    if (request.readyState === 4) {
-      if (request.status === 200) {
-        var data = JSON.parse(request.responseText);
-        var ticket = data.ticket;
-        var details_html =
-          '<p>' +
-          'Subject: ' + ticket.subject + '<br/>' +
-          'Status: <strong>' + ticket.status.toUpperCase() + '</strong><br/>' +
-          'Created: ' + ticket.created_at +
-          '</p>';
-        document.getElementById('details').innerHTML = details_html;
-        document.getElementById('details').style.display = "inherit";
+  function makeRequest(token, ticket_id) {
+    $.ajax({
+      url: 'https://'+ SUBDOMAIN +'.zendesk.com/api/v2/tickets/'+ ticket_id +'.json',
+      secure: true,
+      headers: {
+        'Authorization': "Bearer "+ token
+      },
+      method: 'GET'
+    })
+    .done(function(response) {
+      ticket_result = Object.assign({}, response.ticket);
+      $('#subject span').text(ticket_result.subject);
+      $('#status span').text(ticket_result.status);
+      $('#created_at span').text(ticket_result.created_at);
+      $('#description span').text(ticket_result.description);
+      $('#details').removeClass('hidden');
+    })
+    .fail(function(error) {
+      console.log(error)
+      if(error.status === 0) {
+        showError('There was a problem with the request. Make sure you\'re an agent or admin in Zendesk Support.');
       } else {
-        document.getElementById('details').style.display = "none";
-        if (request.status === 0) {
-          showError('There was a problem with the request. Make sure you\'re an agent or admin in Zendesk Support.');
-        } else {
-          showError('Oops, the request returned \"' + request.status + ' ' + request.statusText + '\".');
-        }
+        showError('Oops, the request returned \"' + error.status + ' ' + error.statusText + '\".');
       }
-    }
-  };
+    });
+  }
 
-  var url = 'https://your_subdomain.zendesk.com/api/v2/tickets/' + ticket_id + '.json';
-  request.open('GET', url, true);
-  request.setRequestHeader("Authorization", "Bearer " + token);
-  request.send();
-}
+  function showError(msg) {
+    $('#error-msg').text(msg);
+    $('#error-msg').removeClass('hidden');
+  }
 
-function showError(msg) {
-  document.getElementById('error-msg').innerHTML = '<p> ' +  msg +  '</p>';
-  document.getElementById('error-msg').style.display = "inherit";
-}
-
-function readUrlParam(url, param) {
-  param += '=';
-  if (url.indexOf(param) !== -1) {
-    var start = url.indexOf(param) + param.length;
-    var value = url.substr(start);
-    if (value.indexOf('&') !== -1) {
-      var end = value.indexOf('&');
-      value = value.substring(0, end);
-    }
+  function readUrlParam(url, param) {
+    param += '=';
+    if (url.indexOf(param) !== -1) {
+      var start = url.indexOf(param) + param.length;
+      var value = url.substr(start);
+      if (value.indexOf('&') !== -1) {
+        var end = value.indexOf('&');
+        value = value.substring(0, end);
+      }
       return value;
     } else {
       return false;
     }
-}
-
-window.addEventListener('load', init, false);
-document.getElementById('get-btn').addEventListener('click', getTicket, false);
+  }
+})();
